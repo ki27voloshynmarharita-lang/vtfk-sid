@@ -1,0 +1,27 @@
+**/target
+.git
+.gitignore
+README.md
+REPORT.md
+EOFcat << 'EOF' > core/capsule/Dockerfile
+FROM rust:1.79 AS build
+WORKDIR /src
+
+# Додаємо таргет для статичної компіляції (MUSL), щоб працювало в scratch
+RUN rustup target add x86_64-unknown-linux-musl
+
+# КРОК ДЛЯ РІВНЯ 2 (Кешування): спершу копіюємо лише Cargo.toml 
+# і збираємо "пустушку", щоб закешувати залежності окремим шаром
+COPY core/sid/Cargo.toml ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs \
+    && cargo build --release --target x86_64-unknown-linux-musl \
+    && rm -rf src
+
+# Тепер копіюємо справжній вихідний код і компілюємо фінальний бінарник
+COPY core/sid/src ./src
+RUN touch src/main.rs && cargo build --release --target x86_64-unknown-linux-musl
+
+# КРОК ДЛЯ РІВНЯ 3: мінімальний образ scratch (0 байт базової ОС)
+FROM scratch
+COPY --from=build /src/target/x86_64-unknown-linux-musl/release/vtfk-sid /sid
+ENTRYPOINT ["/sid"]
